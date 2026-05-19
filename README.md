@@ -76,3 +76,30 @@ Se han realizado **20 iteraciones de Prompt Engineering** para estabilizar la sa
 ## ⚠️ Notas de Hardware
 - **Entorno**: Ejecución en CPU (Windows).
 - **Latencia**: Debido al peso del modelo y la validación, cada respuesta estructurada toma entre **60-120 segundos**. El sistema de validación reduce radicalmente la tasa de error en este entorno limitado.
+
+---
+
+## Evidencia: Experimento RAG vs Baseline
+
+Se incluye un experimento reproducible que compara 10 ejecuciones sin RAG (baseline) y 10 ejecuciones con RAG.
+
+Cómo ejecutar:
+
+```powershell
+c:/python314/python.exe run_eval.py --experiment
+```
+
+Salida generada en este repo:
+- `results_baseline.json` — 10 ejecuciones sin RAG
+- `results_rag.json` — 10 ejecuciones con RAG
+
+Resumen del experimento (ejecutado localmente con el stub):
+- Baseline: 10 casos → PASS 9 / FAIL 1 → PASS_RATE 90.00%
+- Con RAG: 10 casos → PASS 1 / FAIL 9 → PASS_RATE 10.00%
+
+Observación: cuando se usa el stub de respuesta (`engine_gemma.predict`) el comportamiento no replica un LLM real. El RAG construye un prompt largo (CONTEXT + QUESTION) que con el stub produce salidas que el validador no puede parsear, de ahí la caída en pass_rate. En un despliegue con `engine_gemma2` real o un servicio remoto, se espera que el RAG mejore la calidad al proporcionar contexto relevante.
+
+Recomendaciones siguientes:
+- Ejecutar el experimento contra el servicio real (`--use-http`) o habilitar `engine_gemma2` para evaluar correctamente el impacto del RAG.
+- Añadir reparación automática (`validator.repair_prompt`) y reintentos para reducir `json_parse_error`.
+

@@ -16,6 +16,7 @@ except Exception:
     logging.warning("engine_gemma2 no disponible — usando stub engine_gemma.predict")
 
 from validator import validate_output_with_id, new_request_id, repair_prompt
+from rag.retriever import build_index, retrieve_topk, build_rag_prompt
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 
@@ -84,6 +85,9 @@ def run_eval(
     use_http: bool = False,
     api_url: str = "http://127.0.0.1:8000/predict",
     timeout: int = 30,
+    use_rag: bool = False,
+    docs_dir: str = "docs",
+    top_k: int = 3,
 ):
     cases = load_cases(cases_path)
     total = len(cases)
@@ -95,6 +99,12 @@ def run_eval(
 
     print(f"Iniciando evaluación con {total} casos (use_http={use_http})...\n")
 
+    # Si se solicita RAG, construir índice una sola vez
+    index = None
+    if use_rag:
+        index = build_index(docs_dir)
+        print(f"RAG: índice construido con {len(index)} chunks desde {docs_dir}")
+
     for i, c in enumerate(cases):
         user_input = c.get("input", "")
         case_id = c.get("id", f"case_{i+1}")
@@ -102,10 +112,19 @@ def run_eval(
 
         print(f"--- Caso {i+1}/{total} id={case_id} req={req_id} ---")
 
-        if use_http:
-            out = call_predict_http(api_url, user_input, timeout)
+        # Si RAG está activo, construir prompt con contexto
+        if use_rag and index is not None:
+            retrieved = retrieve_topk(index, user_input, k=top_k)
+            chunks = [c for c, s in retrieved]
+            rag_prompt = build_rag_prompt(chunks, user_input)
+            payload_input = rag_prompt
         else:
-            out = call_predict_local(user_input)
+            payload_input = user_input
+
+        if use_http:
+            out = call_predict_http(api_url, payload_input, timeout)
+        else:
+            out = call_predict_local(payload_input)
 
         latencies.append(out.get("latency_ms", 0))
 
@@ -160,12 +179,24 @@ def _parse_args():
     p.add_argument("--use-http", action="store_true", help="Call HTTP endpoint instead of local predict()")
     p.add_argument("--api-url", default="http://127.0.0.1:8000/predict", help="HTTP API URL for /predict")
     p.add_argument("--timeout", type=int, default=30, help="HTTP timeout seconds")
+    p.add_argument("--use-rag", action="store_true", help="Prepend retrieved context to the input (RAG) using docs/")
+    p.add_argument("--docs-dir", default="docs", help="Directory with reference docs for RAG")
+    p.add_argument("--top-k", type=int, default=3, help="Top-k chunks to retrieve for RAG")
+    p.add_argument("--experiment", action="store_true", help="Run baseline (no RAG) and RAG experiment (saves two outputs)")
     return p.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
     try:
-        run_eval(cases_path=args.cases, output_path=args.output, use_http=args.use_http, api_url=args.api_url, timeout=args.timeout)
+        if args.experiment:
+            base_out = args.output.replace('.json', '') + '_baseline.json'
+            rag_out = args.output.replace('.json', '') + '_rag.json'
+            print('Ejecutando experimento: baseline (no RAG)')
+            run_eval(cases_path=args.cases, output_path=base_out, use_http=args.use_http, api_url=args.api_url, timeout=args.timeout, use_rag=False, docs_dir=args.docs_dir, top_k=args.top_k)
+            print('\nEjecutando experimento: con RAG')
+            run_eval(cases_path=args.cases, output_path=rag_out, use_http=args.use_http, api_url=args.api_url, timeout=args.timeout, use_rag=True, docs_dir=args.docs_dir, top_k=args.top_k)
+        else:
+            run_eval(cases_path=args.cases, output_path=args.output, use_http=args.use_http, api_url=args.api_url, timeout=args.timeout, use_rag=args.use_rag, docs_dir=args.docs_dir, top_k=args.top_k)
     except KeyboardInterrupt:
         print("\n\n[!] Ejecución cancelada por el usuario.")
