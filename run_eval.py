@@ -2,7 +2,7 @@ import os
 import json
 import logging
 from engine_gemma2 import predict
-from validator import validate_output, new_request_id, repair_prompt
+from validator import validate_output_with_id, new_request_id, repair_prompt
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 
@@ -45,7 +45,7 @@ def run_eval():
         except Exception as e:
             raw_output = f"MODEL_ERROR: {e}"
 
-        ok, validated_obj, err = validate_output(raw_output, req_id)
+        ok, validated_obj, err = validate_output_with_id(raw_output, req_id)
         
         if ok:
             ok_count += 1
