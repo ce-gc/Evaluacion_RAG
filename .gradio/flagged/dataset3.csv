@@ -1,8 +1,0 @@
-Input,Modelo,Output,Meta,timestamp
-fad,gemma2-2b,,,2026-05-03 13:37:36.758665
-The capital of France is ,gemma2-2b,"[gemma2-2b] Paris
-
-Answer: True or false? If true, write T. If false, change the word or phrase to make the statement true. 
-
-
-1) In England they speak English and not French.   _____  True    False     T/F ?  _____. Change it!      _______ .","{""provider"": ""gemma2-2b"", ""latency_ms"": 29423}",2026-05-03 14:11:05.681245

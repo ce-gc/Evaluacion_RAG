@@ -56,27 +56,44 @@ def load_cases(path: Optional[str]) -> List[Dict[str, Any]]:
     return cases
 
 
-def call_predict_http(api_url: str, user_input: str, timeout: int) -> Dict[str, Any]:
-    t0 = time.time()
-    try:
-        resp = requests.post(api_url, json={"input": user_input}, timeout=timeout)
-        latency_ms = int((time.time() - t0) * 1000)
-        return {"raw_text": resp.text, "latency_ms": latency_ms, "http_ok": resp.status_code == 200}
-    except requests.Timeout:
-        return {"raw_text": "", "latency_ms": int((time.time() - t0) * 1000), "http_ok": False, "exception": "timeout"}
-    except Exception as e:
-        return {"raw_text": f"REQUEST_ERROR: {e}", "latency_ms": int((time.time() - t0) * 1000), "http_ok": False, "exception": "request_error"}
+def call_predict_http(api_url: str, user_input: str, timeout: int, max_retries: int = 3, backoff_base: float = 1.0) -> Dict[str, Any]:
+    attempts = 0
+    t_start = time.time()
+    while attempts < max_retries:
+        attempts += 1
+        t0 = time.time()
+        try:
+            resp = requests.post(api_url, json={"input": user_input}, timeout=timeout)
+            latency_ms = int((time.time() - t_start) * 1000)
+            return {"raw_text": resp.text, "latency_ms": latency_ms, "http_ok": resp.status_code == 200, "attempts": attempts}
+        except requests.Timeout:
+            if attempts < max_retries:
+                time.sleep(backoff_base * (2 ** (attempts - 1)))
+                continue
+            return {"raw_text": "", "latency_ms": int((time.time() - t_start) * 1000), "http_ok": False, "exception": "timeout", "attempts": attempts}
+        except Exception as e:
+            if attempts < max_retries:
+                time.sleep(backoff_base * (2 ** (attempts - 1)))
+                continue
+            return {"raw_text": f"REQUEST_ERROR: {e}", "latency_ms": int((time.time() - t_start) * 1000), "http_ok": False, "exception": "request_error", "attempts": attempts}
 
 
-def call_predict_local(user_input: str) -> Dict[str, Any]:
-    t0 = time.time()
-    try:
-        prompt = PROMPT_TEMPLATE.format(input=user_input)
-        raw = predict(prompt)
-        latency_ms = int((time.time() - t0) * 1000)
-        return {"raw_text": raw, "latency_ms": latency_ms, "http_ok": True}
-    except Exception as e:
-        return {"raw_text": f"MODEL_ERROR: {e}", "latency_ms": int((time.time() - t0) * 1000), "http_ok": False, "exception": "model_error"}
+def call_predict_local(user_input: str, max_retries: int = 2, backoff_base: float = 0.5) -> Dict[str, Any]:
+    attempts = 0
+    t_start = time.time()
+    while attempts < max_retries:
+        attempts += 1
+        t0 = time.time()
+        try:
+            prompt = PROMPT_TEMPLATE.format(input=user_input)
+            raw = predict(prompt)
+            latency_ms = int((time.time() - t_start) * 1000)
+            return {"raw_text": raw, "latency_ms": latency_ms, "http_ok": True, "attempts": attempts}
+        except Exception as e:
+            if attempts < max_retries:
+                time.sleep(backoff_base * (2 ** (attempts - 1)))
+                continue
+            return {"raw_text": f"MODEL_ERROR: {e}", "latency_ms": int((time.time() - t_start) * 1000), "http_ok": False, "exception": "model_error", "attempts": attempts}
 
 
 def run_eval(
@@ -122,19 +139,18 @@ def run_eval(
             payload_input = user_input
 
         if use_http:
-            out = call_predict_http(api_url, payload_input, timeout)
+            out = call_predict_http(api_url, payload_input, timeout, max_retries=3, backoff_base=1.0)
         else:
-            out = call_predict_local(payload_input)
+            out = call_predict_local(payload_input, max_retries=2, backoff_base=0.5)
 
-        # If JSON parse failed, try one repair attempt (repair_prompt + re-call)
+        # If HTTP/model succeeded, validate and optionally attempt repair (one-shot)
         if not out.get("exception"):
             ok, parsed, error_type = validate_output_with_id(out["raw_text"], req_id)
+            repaired = False
             if not ok and error_type == "json_parse_error":
-                # Attempt repair once
                 repair = repair_prompt(out["raw_text"]) if repair_prompt else None
                 if repair:
                     try:
-                        # call model locally to repair
                         repaired_raw = predict(repair)
                         ok2, parsed2, error2 = validate_output_with_id(repaired_raw, req_id + "-repair")
                         if ok2:
@@ -142,14 +158,18 @@ def run_eval(
                             parsed = parsed2
                             error_type = None
                             out["raw_text"] = repaired_raw
+                            repaired = True
                         else:
                             error_type = error2
                     except Exception:
                         pass
+            out_attempts = out.get("attempts", 1)
         else:
             ok = False
             parsed = None
             error_type = out.get("exception")
+            repaired = False
+            out_attempts = out.get("attempts", 1)
 
         latencies.append(out.get("latency_ms", 0))
 
@@ -167,6 +187,8 @@ def run_eval(
                 "error_type": error_type,
                 "latency_ms": out.get("latency_ms"),
                 "http_ok": out.get("http_ok", True),
+                "attempts": out_attempts,
+                "repaired": repaired,
                 "raw": out.get("raw_text")[:200],
                 "parsed": parsed if ok else None,
             }

@@ -2,7 +2,7 @@
 
 Este proyecto ha evolucionado de un simple servidor de texto a un **Pipeline de Inferencia Estructurada** capaz de obligar a modelos de lenguaje (Gemma 2 2B) a devolver respuestas en formato JSON válido, validarlas y repararlas automáticamente.
 
-## 🚀 Funcionalidades Principales
+## Funcionalidades Principales
 
 ### 1. Motor de Inferencia (Gemma 2 2B Instruct)
 - **Modelo**: `google/gemma-2-2b-it`.
@@ -24,7 +24,7 @@ Este proyecto ha evolucionado de un simple servidor de texto a un **Pipeline de 
 
 ---
 
-## 🛠️ Instalación y Uso
+## Instalación y Uso
 
 1. **Instalar dependencias:**
    ```bash
@@ -51,7 +51,7 @@ Este proyecto ha evolucionado de un simple servidor de texto a un **Pipeline de 
 
 ---
 
-## 📊 Arquitectura de Prompts (Iteración v1-v20)
+## Arquitectura de Prompts (Iteración v1-v20)
 
 Se han realizado **20 iteraciones de Prompt Engineering** para estabilizar la salida en un modelo de solo 2 billones de parámetros. El historial completo se encuentra en `prompts.md`.
 
@@ -62,7 +62,7 @@ Se han realizado **20 iteraciones de Prompt Engineering** para estabilizar la sa
 
 ---
 
-## 📁 Estructura del Proyecto
+## Estructura del Proyecto
 
 - `engine_gemma2.py`: Motor de inferencia real (HuggingFace).
 - `validator.py`: Lógica de validación, limpieza y logging.
@@ -73,7 +73,7 @@ Se han realizado **20 iteraciones de Prompt Engineering** para estabilizar la sa
 
 ---
 
-## ⚠️ Notas de Hardware
+## Notas de Hardware
 - **Entorno**: Ejecución en CPU (Windows).
 - **Latencia**: Debido al peso del modelo y la validación, cada respuesta estructurada toma entre **60-120 segundos**. El sistema de validación reduce radicalmente la tasa de error en este entorno limitado.
 

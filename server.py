@@ -18,6 +18,8 @@ except Exception:
     retrieve_topk = None
     build_rag_prompt = None
     _RAG_INDEX = None
+    
+from validator import validate_output, repair_prompt
 
 app = FastAPI()
 
@@ -43,6 +45,32 @@ def predict(body: PredictIn):
     else:
         output_text = stub_predict(prompt_input)
         provider = "stub"
+
+    # Validate model output and attempt one-shot repair if JSON parse fails
+    try:
+        ok, err_type, parsed = validate_output(output_text)
+    except Exception:
+        ok = False
+        err_type = "validation_error"
+        parsed = None
+
+    repaired = False
+    if not ok and err_type == "json_parse_error":
+        rp = repair_prompt(output_text)
+        try:
+            # use same provider to repair
+            if provider == "gemma2-2b" and gemma2_predict is not None:
+                repaired_raw = gemma2_predict(rp)
+            else:
+                repaired_raw = stub_predict(rp)
+            ok2, err2, parsed2 = validate_output(repaired_raw)
+            if ok2:
+                output_text = repaired_raw
+                repaired = True
+                parsed = parsed2
+                err_type = None
+        except Exception:
+            pass
 
     ms = int((time.time() - t0) * 1000)
     return {
