@@ -1,61 +1,47 @@
 import requests
-import time
 import concurrent.futures
+import pytest
 
 BASE_URL = "http://127.0.0.1:8000"
 
-def test_hola_mundo():
-    print("Testing /hola_mundo...")
-    try:
-        r = requests.get(f"{BASE_URL}/hola_mundo")
-        print(f"Status: {r.status_code}, Response: {r.json()}")
-    except Exception as e:
-        print(f"Error connecting to server: {e}")
 
-def test_predict(payload):
-    print(f"Testing /predict with model: {payload.get('model')}")
+def _call(path: str, method: str = "get", json=None):
+    url = BASE_URL + path
     try:
-        r = requests.post(f"{BASE_URL}/predict", json=payload)
-        print(f"Status: {r.status_code}")
-        if r.status_code == 200:
-            print(f"Response Meta: {r.json().get('meta')}")
+        if method == "get":
+            return requests.get(url, timeout=5)
         else:
-            print(f"Response: {r.text}")
-    except Exception as e:
-        print(f"Error: {e}")
+            return requests.post(url, json=json, timeout=5)
+    except requests.exceptions.RequestException:
+        pytest.skip(f"Server not available at {BASE_URL}")
 
-def run_all_tests():
-    print("--- INICIANDO TESTS EXTRA ---")
-    
-    # 1. Test Hola Mundo
-    test_hola_mundo()
-    print("-" * 30)
 
-    # 2. Caso Límite: Input vacío (Debe dar 422)
-    test_predict({"input": "", "model": "stub"})
-    print("-" * 30)
+def test_hola_mundo():
+    r = _call("/hola_mundo")
+    assert r.status_code == 200
 
-    # 3. Caso Límite: Caracteres especiales
-    test_predict({"input": "¡Hola! 🌟 ¿Cómo estás? 你好 123 @#$%", "model": "stub"})
-    print("-" * 30)
 
-    # 4. Caso Límite: Input muy largo
-    long_input = "Esta es una frase repetida. " * 100
-    test_predict({"input": long_input, "model": "stub"})
-    print("-" * 30)
+@pytest.mark.parametrize("payload", [
+    {"input": "", "model": "stub"},
+    {"input": "¡Hola! 🌟 ¿Cómo estás? 你好 123 @#$%", "model": "stub"},
+    {"input": "Esta es una frase repetida. " * 100, "model": "stub"},
+    {"input": "Test model fallback", "model": "modelo-fantasma"},
+])
+def test_predict(payload):
+    r = _call("/predict", method="post", json=payload)
+    assert r.status_code in (200, 422)
 
-    # 5. Caso Límite: Modelo inexistente (Cae en el else -> stub)
-    test_predict({"input": "Test model fallback", "model": "modelo-fantasma"})
-    print("-" * 30)
 
-    # 6. Test de concurrencia (Simulando 5 peticiones rápidas)
-    print("Testing concurrency (5 requests)...")
+def test_concurrency():
+    # small concurrency smoke test — skips if server unavailable
     payloads = [{"input": f"Request {i}", "model": "stub"} for i in range(5)]
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        futures = [executor.submit(requests.post, f"{BASE_URL}/predict", json=p) for p in payloads]
-        for i, future in enumerate(concurrent.futures.as_completed(futures)):
-            r = future.result()
-            print(f"Request {i} completed with status {r.status_code}")
-
-if __name__ == "__main__":
-    run_all_tests()
+        futures = [executor.submit(requests.post, f"{BASE_URL}/predict", json=p, timeout=5) for p in payloads]
+        results = []
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                r = future.result()
+                results.append(r.status_code)
+            except requests.exceptions.RequestException:
+                pytest.skip("Server not available during concurrency test")
+    assert all(s in (200, 422) for s in results)

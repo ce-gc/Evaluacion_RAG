@@ -126,14 +126,32 @@ def run_eval(
         else:
             out = call_predict_local(payload_input)
 
-        latencies.append(out.get("latency_ms", 0))
-
-        if out.get("exception"):
-            ok = False
-            error_type = out.get("exception")
-            parsed = None
-        else:
+        # If JSON parse failed, try one repair attempt (repair_prompt + re-call)
+        if not out.get("exception"):
             ok, parsed, error_type = validate_output_with_id(out["raw_text"], req_id)
+            if not ok and error_type == "json_parse_error":
+                # Attempt repair once
+                repair = repair_prompt(out["raw_text"]) if repair_prompt else None
+                if repair:
+                    try:
+                        # call model locally to repair
+                        repaired_raw = predict(repair)
+                        ok2, parsed2, error2 = validate_output_with_id(repaired_raw, req_id + "-repair")
+                        if ok2:
+                            ok = True
+                            parsed = parsed2
+                            error_type = None
+                            out["raw_text"] = repaired_raw
+                        else:
+                            error_type = error2
+                    except Exception:
+                        pass
+        else:
+            ok = False
+            parsed = None
+            error_type = out.get("exception")
+
+        latencies.append(out.get("latency_ms", 0))
 
         if ok:
             pass_count += 1
