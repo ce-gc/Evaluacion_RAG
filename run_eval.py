@@ -1,19 +1,34 @@
 import os
 import json
+import time
 import logging
-from engine_gemma2 import predict
+import argparse
+from collections import Counter
+from typing import Any, Dict, List, Optional
+
+import requests
+
+try:
+    from engine_gemma2 import predict
+except Exception:
+    # Si engine_gemma2 no está disponible (modelo pesado), usar el stub ligero
+    from engine_gemma import predict  # type: ignore
+    logging.warning("engine_gemma2 no disponible — usando stub engine_gemma.predict")
+
 from validator import validate_output_with_id, new_request_id, repair_prompt
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
+
 
 # Prompt de alta precisión
 PROMPT_TEMPLATE = """Task: Generate a technical response in JSON format.
 Strict Schema: {{"ok": true, "data": {{"answer": "...", "confidence": 0.9, "actions": ["..."], "error": null}}}}
 
 Input: {input}
-Output JSON: {{"ok": """
+Output JSON:
+"""
 
-INPUTS = [
+DEFAULT_INPUTS = [
     "Dame 3 pasos para depurar un error 500 en una API.",
     "Resume en 1 frase qué hace nuestro endpoint /predict.",
     "Convierte este texto en una lista de acciones: 'Instala dependencias, arranca el servidor, prueba con curl'.",
@@ -26,39 +41,131 @@ INPUTS = [
     "Pregunta imposible: 'Dame la contraseña del WiFi del centro'."
 ]
 
-def run_eval():
-    ok_count = 0
-    total = len(INPUTS)
-    results = []
 
-    print(f"Iniciando evaluación real con {total} inputs...\n")
+def load_cases(path: Optional[str]) -> List[Dict[str, Any]]:
+    if not path:
+        return [{"id": f"input_{i+1}", "input": s} for i, s in enumerate(DEFAULT_INPUTS)]
+    cases: List[Dict[str, Any]] = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            cases.append(json.loads(line))
+    return cases
 
-    for i, user_input in enumerate(INPUTS):
-        req_id = new_request_id()
-        print(f"--- Prueba {i+1}/{total} [ID: {req_id}] ---")
-        
+
+def call_predict_http(api_url: str, user_input: str, timeout: int) -> Dict[str, Any]:
+    t0 = time.time()
+    try:
+        resp = requests.post(api_url, json={"input": user_input}, timeout=timeout)
+        latency_ms = int((time.time() - t0) * 1000)
+        return {"raw_text": resp.text, "latency_ms": latency_ms, "http_ok": resp.status_code == 200}
+    except requests.Timeout:
+        return {"raw_text": "", "latency_ms": int((time.time() - t0) * 1000), "http_ok": False, "exception": "timeout"}
+    except Exception as e:
+        return {"raw_text": f"REQUEST_ERROR: {e}", "latency_ms": int((time.time() - t0) * 1000), "http_ok": False, "exception": "request_error"}
+
+
+def call_predict_local(user_input: str) -> Dict[str, Any]:
+    t0 = time.time()
+    try:
         prompt = PROMPT_TEMPLATE.format(input=user_input)
-        
-        try:
-            raw_output = predict(prompt)
-            print(f"\n[DEBUG RAW] {raw_output}\n")
-        except Exception as e:
-            raw_output = f"MODEL_ERROR: {e}"
+        raw = predict(prompt)
+        latency_ms = int((time.time() - t0) * 1000)
+        return {"raw_text": raw, "latency_ms": latency_ms, "http_ok": True}
+    except Exception as e:
+        return {"raw_text": f"MODEL_ERROR: {e}", "latency_ms": int((time.time() - t0) * 1000), "http_ok": False, "exception": "model_error"}
 
-        ok, validated_obj, err = validate_output_with_id(raw_output, req_id)
-        
-        if ok:
-            ok_count += 1
-            results.append({"input": user_input, "output": validated_obj, "pass": True})
-            print(f"OK")
+
+def run_eval(
+    cases_path: Optional[str] = None,
+    output_path: str = "eval_results.json",
+    use_http: bool = False,
+    api_url: str = "http://127.0.0.1:8000/predict",
+    timeout: int = 30,
+):
+    cases = load_cases(cases_path)
+    total = len(cases)
+    pass_count = 0
+    fail_count = 0
+    error_types = Counter()
+    latencies: List[int] = []
+    results: List[Dict[str, Any]] = []
+
+    print(f"Iniciando evaluación con {total} casos (use_http={use_http})...\n")
+
+    for i, c in enumerate(cases):
+        user_input = c.get("input", "")
+        case_id = c.get("id", f"case_{i+1}")
+        req_id = new_request_id()
+
+        print(f"--- Caso {i+1}/{total} id={case_id} req={req_id} ---")
+
+        if use_http:
+            out = call_predict_http(api_url, user_input, timeout)
         else:
-            results.append({"input": user_input, "output": raw_output, "pass": False, "error": err})
-            print(f"FAIL: {err}")
+            out = call_predict_local(user_input)
 
-    print(f"\nResultado final: {ok_count}/{total} OK")
+        latencies.append(out.get("latency_ms", 0))
+
+        if out.get("exception"):
+            ok = False
+            error_type = out.get("exception")
+            parsed = None
+        else:
+            ok, parsed, error_type = validate_output_with_id(out["raw_text"], req_id)
+
+        if ok:
+            pass_count += 1
+        else:
+            fail_count += 1
+            error_types[error_type or "unknown_error"] += 1
+
+        results.append(
+            {
+                "id": case_id,
+                "input": user_input,
+                "pass": bool(ok),
+                "error_type": error_type,
+                "latency_ms": out.get("latency_ms"),
+                "http_ok": out.get("http_ok", True),
+                "raw": out.get("raw_text")[:200],
+                "parsed": parsed if ok else None,
+            }
+        )
+
+    pass_rate = (pass_count / total) if total > 0 else 0.0
+    avg_latency = (sum(latencies) / len(latencies)) if latencies else 0.0
+
+    print(f"TOTAL: {total}")
+    print(f"PASS: {pass_count}")
+    print(f"FAIL: {fail_count}")
+    print(f"PASS_RATE: {pass_rate:.2%}")
+    print("\nTOP_ERRORES:")
+    for k, v in error_types.most_common(3):
+        print(f"- {k}: {v}")
+    print(f"\nLATENCIA_MEDIA_MS: {avg_latency:.1f}")
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(results, f, ensure_ascii=False, indent=2)
+
+    print(f"\nResultados guardados en: {output_path}")
+
+
+def _parse_args():
+    p = argparse.ArgumentParser(description="Run evaluation suite against /predict or local model")
+    p.add_argument("--cases", help="Path to cases.jsonl (one JSON per line)")
+    p.add_argument("--output", default="eval_results.json", help="Path to save results")
+    p.add_argument("--use-http", action="store_true", help="Call HTTP endpoint instead of local predict()")
+    p.add_argument("--api-url", default="http://127.0.0.1:8000/predict", help="HTTP API URL for /predict")
+    p.add_argument("--timeout", type=int, default=30, help="HTTP timeout seconds")
+    return p.parse_args()
+
 
 if __name__ == "__main__":
+    args = _parse_args()
     try:
-        run_eval()
+        run_eval(cases_path=args.cases, output_path=args.output, use_http=args.use_http, api_url=args.api_url, timeout=args.timeout)
     except KeyboardInterrupt:
         print("\n\n[!] Ejecución cancelada por el usuario.")
