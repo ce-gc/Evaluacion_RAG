@@ -102,3 +102,43 @@ Recomendaciones siguientes:
 - Ejecutar el experimento contra el servicio real (`--use-http`) o habilitar `engine_gemma2` para evaluar correctamente el impacto del RAG.
 - Añadir reparación automática (`validator.repair_prompt`) y reintentos para reducir `json_parse_error`.
 
+## Interpretar los resultados de la evaluación
+
+Los ficheros generados por el runner (`eval_results.json`, `<output>_baseline.json`, `<output>_rag.json`) contienen una lista de objetos con al menos los siguientes campos:
+
+- `id`: identificador del caso
+- `input`: texto de entrada
+- `pass`: boolean
+- `error_type`: tipo de fallo si `pass` es false
+- `raw`: fragmento de la respuesta cruda (recortado)
+- `parsed`: objeto JSON parseado si `pass` es true (puede ser null)
+- `latency_ms`: latencia en ms
+
+Comandos rápidos para obtener métricas con Python:
+
+```bash
+python - <<'PY'
+import json
+from collections import Counter
+r=json.load(open('eval_results_baseline.json'))
+total=len(r)
+passes=sum(1 for x in r if x.get('pass'))
+errors=Counter(x.get('error_type') or 'none' for x in r if not x.get('pass'))
+avg_lat=sum(x.get('latency_ms',0) for x in r)/total
+print('TOTAL', total)
+print('PASS', passes)
+print('PASS_RATE', f"{passes/total:.2%}")
+print('TOP_ERRORS', errors.most_common(5))
+print('AVG_LAT_MS', avg_lat)
+PY
+```
+
+Si prefieres `jq` (Unix), un ejemplo para contar pass/fail:
+
+```bash
+jq '[.[] | select(.pass==true)] | length' eval_results_baseline.json
+jq '[.[] | select(.pass==false)] | length' eval_results_baseline.json
+```
+
+Guarda los JSONs de cada ejecución para construir la evidencia solicitada (10 baseline + 10 RAG o el experimento completo con `--experiment`).
+
