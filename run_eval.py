@@ -45,7 +45,12 @@ DEFAULT_INPUTS = [
 
 def load_cases(path: Optional[str]) -> List[Dict[str, Any]]:
     if not path:
-        return [{"id": f"input_{i+1}", "input": s} for i, s in enumerate(DEFAULT_INPUTS)]
+        # Si no se proporciona ruta, intentar cargar cases.jsonl por defecto
+        default_path = "cases.jsonl"
+        if os.path.exists(default_path):
+            path = default_path
+        else:
+            return [{"id": f"input_{i+1}", "input": s} for i, s in enumerate(DEFAULT_INPUTS)]
     cases: List[Dict[str, Any]] = []
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -214,7 +219,7 @@ def run_eval(
 
 def _parse_args():
     p = argparse.ArgumentParser(description="Run evaluation suite against /predict or local model")
-    p.add_argument("--cases", help="Path to cases.jsonl (one JSON per line)")
+    p.add_argument("--cases", default="cases.jsonl", help="Path to cases.jsonl (one JSON per line). Defaults to cases.jsonl if present")
     p.add_argument("--output", default="eval_results.json", help="Path to save results")
     p.add_argument("--use-http", action="store_true", help="Call HTTP endpoint instead of local predict()")
     p.add_argument("--api-url", default="http://127.0.0.1:8000/predict", help="HTTP API URL for /predict")
