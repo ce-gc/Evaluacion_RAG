@@ -152,22 +152,45 @@ def run_eval(
         if not out.get("exception"):
             ok, parsed, error_type = validate_output_with_id(out["raw_text"], req_id)
             repaired = False
+            # Si falla por parseo JSON, intentar reintentos rápidos con instrucción estricta
             if not ok and error_type == "json_parse_error":
-                repair = repair_prompt(out["raw_text"]) if repair_prompt else None
-                if repair:
+                strict_suffix = "\nResponde SOLO con JSON válido; sin ```json ni explicación ni texto adicional."
+                for retry_i in range(2):
                     try:
-                        repaired_raw = predict(repair)
-                        ok2, parsed2, error2 = validate_output_with_id(repaired_raw, req_id + "-repair")
+                        if use_http:
+                            alt = call_predict_http(api_url, payload_input + strict_suffix, timeout, max_retries=1)
+                            alt_raw = alt.get("raw_text", "")
+                        else:
+                            alt_raw = predict(PROMPT_TEMPLATE.format(input=payload_input) + strict_suffix)
+
+                        ok2, parsed2, error2 = validate_output_with_id(alt_raw, req_id + f"-retry{retry_i+1}")
                         if ok2:
                             ok = True
                             parsed = parsed2
                             error_type = None
-                            out["raw_text"] = repaired_raw
+                            out["raw_text"] = alt_raw
                             repaired = True
-                        else:
-                            error_type = error2
+                            break
                     except Exception:
-                        pass
+                        continue
+
+                # Si aún no se arregla, intentar la ruta de 'repair_prompt' original
+                if not ok:
+                    repair = repair_prompt(out["raw_text"]) if repair_prompt else None
+                    if repair:
+                        try:
+                            repaired_raw = predict(repair)
+                            ok2, parsed2, error2 = validate_output_with_id(repaired_raw, req_id + "-repair")
+                            if ok2:
+                                ok = True
+                                parsed = parsed2
+                                error_type = None
+                                out["raw_text"] = repaired_raw
+                                repaired = True
+                            else:
+                                error_type = error2
+                        except Exception:
+                            pass
             out_attempts = out.get("attempts", 1)
         else:
             ok = False

@@ -49,16 +49,48 @@ def clip(s: str, n: int = 200) -> str:
 
 
 def _clean_raw(raw: str) -> str:
-    """Elimina envolturas markdown y extrae el bloque JSON."""
+    """Elimina envolturas markdown, extrae el primer bloque JSON y limpia escapes.
+
+    Intenta varios enfoques para manejar respuestas comunes del modelo:
+    - quitar fences ``` y ```json
+    - extraer el primer bloque que empiece por '{' o '[' y termine en '}' o ']'
+    - si el bloque es una cadena JSON escapada (ej. "{\"ok\": ...}"), intentar des-escapar
+    - reemplazar comillas escapadas si es necesario
+    """
     text = raw.strip()
-    if "```json" in text:
-        text = text.split("```json")[-1].split("```")[0]
-    elif "```" in text:
-        parts = text.split("```")
-        text = parts[1] if len(parts) >= 3 else parts[-1]
-    match = re.search(r'(\{.*\})', text, re.DOTALL)
-    if match:
-        text = match.group(1)
+
+    # Quitar fences markdown si existen
+    text = re.sub(r"^\s*```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```\s*$", "", text)
+
+    # Extraer primer objeto/array JSON
+    m = re.search(r'([\{\[][\s\S]*[\}\]])', text)
+    if m:
+        text = m.group(1)
+
+    text = text.strip()
+
+    # Si parece ser una cadena JSON (comienza y termina con comillas), intentar unquote via json.loads
+    if (text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'")):
+        try:
+            inner = json.loads(text)
+            if isinstance(inner, str):
+                text = inner
+            else:
+                text = json.dumps(inner)
+        except Exception:
+            text = text.strip('"')
+
+    # Si contiene comillas escapadas, intentar reemplazarlas
+    if '\\"' in text or "\\n" in text:
+        try:
+            candidate = text.replace('\\"', '"').replace("\\'", "'").replace('\\n', '\n')
+            # no forzar, sólo aceptar si parece JSON válido
+            json.loads(candidate)
+            text = candidate
+        except Exception:
+            pass
+
     return text.strip()
 
 
@@ -71,11 +103,42 @@ def _check(raw: str) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
     Lógica pura de validación.
     Devuelve (pass, error_type, parsed_obj).
     """
-    # 1) Parseo JSON (con limpieza previa de markdown)
+    # 1) Parseo JSON (con limpieza previa y estrategias de reparación simples)
+    cleaned = _clean_raw(raw)
     try:
-        obj = json.loads(_clean_raw(raw))
+        obj = json.loads(cleaned)
     except Exception:
-        return False, "json_parse_error", None
+        # 1st fallback: si cleaned es una cadena JSON encodificada, intentar cargarla y parsear de nuevo
+        try:
+            maybe = json.loads(cleaned)
+            if isinstance(maybe, str):
+                obj = json.loads(maybe)
+            else:
+                obj = maybe
+        except Exception:
+            # 2nd fallback: reemplazar comillas escapadas y reintentar
+            try:
+                candidate = cleaned.replace('\\"', '"').replace("\\'", "'")
+                obj = json.loads(candidate)
+            except Exception:
+                return False, "json_parse_error", None
+
+    # Si el objeto parseado es un wrapper (p. ej. contiene 'response' con el JSON real), extraerlo
+    if isinstance(obj, dict) and "ok" not in obj and "response" in obj and isinstance(obj["response"], str):
+        inner_raw = obj["response"]
+        try:
+            inner_clean = _clean_raw(inner_raw)
+            inner_obj = json.loads(inner_clean)
+            obj = inner_obj
+        except Exception:
+            # intentar des-escape y reintentar
+            try:
+                inner_candidate = inner_raw.replace('\\"', '"').replace("\\'", "'")
+                inner_clean = _clean_raw(inner_candidate)
+                obj = json.loads(inner_clean)
+            except Exception:
+                # no pudo extraer inner JSON, continuar con el objeto original (fallará más adelante)
+                pass
 
     if not isinstance(obj, dict):
         return False, "not_a_dict", None
