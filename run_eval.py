@@ -150,7 +150,32 @@ def run_eval(
 
         # If HTTP/model succeeded, validate and optionally attempt repair (one-shot)
         if not out.get("exception"):
-            ok, parsed, error_type = validate_output_with_id(out["raw_text"], req_id)
+            # Pre-extract JSON from common wrapper structures before validation.
+            candidate_raw = out.get("raw_text", "")
+            try:
+                # si es un JSON wrapper (string que representa un objeto con campo 'response'), extraerlo
+                import json as _json
+                wrapper = _json.loads(candidate_raw)
+                if isinstance(wrapper, dict) and "response" in wrapper and isinstance(wrapper["response"], str):
+                    candidate_raw = wrapper["response"]
+            except Exception:
+                # no es un wrapper JSON puro — intentar detectar '"response":' dentro del text
+                try:
+                    import re as _re
+                    m = _re.search(r'"response"\s*:\s*"([\s\S]*?)"\s*(,|})', candidate_raw)
+                    if m:
+                        # unescape JSON string content
+                        inner = m.group(1)
+                        try:
+                            candidate_raw = candidate_raw.replace('\\\"', '\\"')
+                            # wrap in quotes to unescape
+                            candidate_raw = _json.loads('"' + inner + '"')
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            ok, parsed, error_type = validate_output_with_id(candidate_raw, req_id)
             repaired = False
             # Si falla por parseo JSON, intentar reintentos rápidos con instrucción estricta
             if not ok and error_type == "json_parse_error":

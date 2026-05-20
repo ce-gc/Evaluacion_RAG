@@ -44,7 +44,7 @@ Este proyecto ha evolucionado de un simple servidor de texto a un **Pipeline de 
    ```
 
 3. **Ejecutar Evaluación (`run_eval.py`):**
-   Procesa 10 casos de prueba complejos (incluyendo ataques de inyección y preguntas imposibles) y genera un reporte de éxito:
+   Procesa una suite de casos (por defecto `cases.jsonl`) con un mínimo recomendado de 50 casos (incluye 10 inputs obligatorios) y genera un reporte de éxito:
    ```bash
    python run_eval.py
    ```
@@ -94,8 +94,7 @@ Salida generada en este repo:
 - `results_rag.json` — 10 ejecuciones con RAG
 
 Resumen del experimento (ejecutado localmente con el stub):
-- Baseline: 10 casos → PASS 9 / FAIL 1 → PASS_RATE 90.00%
-- Con RAG: 10 casos → PASS 1 / FAIL 9 → PASS_RATE 10.00%
+*Nota*: los resultados de ejemplo anteriores se generaron con un stub. En tu evaluación final asegúrate de ejecutar la suite completa de al menos 50 casos y los experimentos baseline/RAG (`--experiment`) para obtener evidencia reproducible.*
 
 Observación: cuando se usa el stub de respuesta (`engine_gemma.predict`) el comportamiento no replica un LLM real. El RAG construye un prompt largo (CONTEXT + QUESTION) que con el stub produce salidas que el validador no puede parsear, de ahí la caída en pass_rate. En un despliegue con `engine_gemma2` real o un servicio remoto, se espera que el RAG mejore la calidad al proporcionar contexto relevante.
 
