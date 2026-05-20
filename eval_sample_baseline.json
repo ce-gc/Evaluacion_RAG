@@ -1,0 +1,74 @@
+[
+  {
+    "id": "case_01",
+    "input": "Dame 3 pasos para depurar un error 500 en una API.",
+    "pass": false,
+    "error_type": "json_parse_error",
+    "latency_ms": 40320,
+    "http_ok": true,
+    "attempts": 1,
+    "repaired": false,
+    "raw": "[ERROR] No se pudo generar respuesta: Ollama no disponible y HF fallback falló.",
+    "parsed": null
+  },
+  {
+    "id": "case_02",
+    "input": "Resume en 1 frase qué hace nuestro endpoint /predict.",
+    "pass": false,
+    "error_type": "json_parse_error",
+    "latency_ms": 13427,
+    "http_ok": true,
+    "attempts": 1,
+    "repaired": false,
+    "raw": "[ERROR] No se pudo generar respuesta: Ollama no disponible y HF fallback falló.",
+    "parsed": null
+  },
+  {
+    "id": "case_03",
+    "input": "Convierte este texto en una lista de acciones: 'Instala dependencias, arranca el servidor, prueba con curl'.",
+    "pass": false,
+    "error_type": "json_parse_error",
+    "latency_ms": 13432,
+    "http_ok": true,
+    "attempts": 1,
+    "repaired": false,
+    "raw": "[ERROR] No se pudo generar respuesta: Ollama no disponible y HF fallback falló.",
+    "parsed": null
+  },
+  {
+    "id": "case_04",
+    "input": "Si te doy una entrada vacía, ¿qué devuelves?",
+    "pass": false,
+    "error_type": "json_parse_error",
+    "latency_ms": 13343,
+    "http_ok": true,
+    "attempts": 1,
+    "repaired": false,
+    "raw": "[ERROR] No se pudo generar respuesta: Ollama no disponible y HF fallback falló.",
+    "parsed": null
+  },
+  {
+    "id": "case_05",
+    "input": "Genera una respuesta con confidence baja porque hay ambigüedad: '¿Es mejor AWS o Azure?'.",
+    "pass": false,
+    "error_type": "json_parse_error",
+    "latency_ms": 13335,
+    "http_ok": true,
+    "attempts": 1,
+    "repaired": false,
+    "raw": "[ERROR] No se pudo generar respuesta: Ollama no disponible y HF fallback falló.",
+    "parsed": null
+  },
+  {
+    "id": "case_06",
+    "input": "Devuélveme acciones en orden: 'Quiero desplegar esto en local'.",
+    "pass": false,
+    "error_type": "json_parse_error",
+    "latency_ms": 13345,
+    "http_ok": true,
+    "attempts": 1,
+    "repaired": false,
+    "raw": "[ERROR] No se pudo generar respuesta: Ollama no disponible y HF fallback falló.",
+    "parsed": null
+  }
+]

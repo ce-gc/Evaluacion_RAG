@@ -1,0 +1,6 @@
+{"id": "case_01", "input": "Dame 3 pasos para depurar un error 500 en una API."}
+{"id": "case_02", "input": "Resume en 1 frase qué hace nuestro endpoint /predict."}
+{"id": "case_03", "input": "Convierte este texto en una lista de acciones: 'Instala dependencias, arranca el servidor, prueba con curl'."}
+{"id": "case_04", "input": "Si te doy una entrada vacía, ¿qué devuelves?"}
+{"id": "case_05", "input": "Genera una respuesta con confidence baja porque hay ambigüedad: '¿Es mejor AWS o Azure?'."}
+{"id": "case_06", "input": "Devuélveme acciones en orden: 'Quiero desplegar esto en local'."}
